@@ -24,39 +24,53 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Extract KING Detection project
+        shell: bash
+        run: |
+          mkdir -p extracted
+          unzip -q KING-Detection-GitHub.zip -d extracted
+          echo "Project files:"
+          find extracted -maxdepth 4 -type f | head -80
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Find Android project
+        id: project
+        shell: bash
+        run: |
+          PROJECT=$(find extracted -type f -name settings.gradle -o -name settings.gradle.kts | head -1)
+          if [ -z "$PROJECT" ]; then
+            echo "::error::No Android Gradle project found inside ZIP"
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$PROJECT")
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project: $PROJECT_DIR"
 
-      - name: Grant Gradle permission
+      - name: Build Android APK
+        shell: bash
+        working-directory: ${{ steps.project.outputs.dir }}
         run: |
           if [ -f gradlew ]; then
             chmod +x gradlew
-          fi
-
-      - name: Build KING Detection
-        run: |
-          if [ -f gradlew ]; then
             ./gradlew assembleDebug --no-daemon
           else
-            echo "ERROR: gradlew not found"
-            exit 1
+            gradle assembleDebug --no-daemon
           fi
 
       - name: Collect APK
+        shell: bash
         run: |
           mkdir -p output
-          find . -type f -path "*/build/outputs/apk/*" \
-            -name "*debug.apk" \
-            -exec cp {} output/KING-Detection.apk \;
-          test -s output/KING-Detection.apk
+          APK=$(find extracted -type f -name '*debug.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No debug APK produced"
+            exit 1
+          fi
+          cp "$APK" output/KING-Detection.apk
 
-      - name: Upload KING Detection APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KING-Detection-Android
           path: output/KING-Detection.apk
-          retention-days: 30
           if-no-files-found: error
+          retention-days: 30
